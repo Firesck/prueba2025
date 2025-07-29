@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Consola de Despacho</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .status-led {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      margin-right: 10px;
+      background-color: #28a745;
+    }
+    .ptt-active {
+      background-color: #dc3545;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      margin: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #6c757d;
+    }
+    select {
+      padding: 8px;
+      margin: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Consola de Despacho</h1>
+    <div>
+      <span id="statusLed" class="status-led"></span>
+      <span id="statusText">Desconectado</span>
+    </div>
+    <div>
+      <button id="connectBtn">Conectar</button>
+      <button id="disconnectBtn" disabled>Desconectar</button>
+      <button id="refreshBtn">Actualizar Puertos</button>
+    </div>
+    <div>
+      <label>Baud Rate:</label>
+      <select id="baudRate">
+        <option value="9600">9600</option>
+        <option value="19200">19200</option>
+        <option value="38400">38400</option>
+      </select>
+    </div>
+    <div>
+      <button id="pttBtn" disabled>ACTIVAR PTT</button>
+    </div>
+    <div>
+      <label>Sonido:</label>
+      <select id="soundSelect">
+        <option value="Comunicados">comunicados</option>
+        <option value="100">10-0</option>
+	<option value="102101">10-2 10-1</option>
+	<option value="10310-4">10-3 10-4</option>
+	<option value="105106">10-5 10-6</option>
+	<option value="alarmaincendio">Alarma de Incendio</option>
+	<option value="at of">Atencion Oficiales</option>
+	<option value="0809">En o Fuera de servicio</option>
+        <option value="Evacuacion">evacuacion</option>
+      </select>
+      <button id="playSoundBtn" disabled>Reproducir + PTT</button>
+    </div>
+    <div id="log" style="margin-top: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;"></div>
+  </div>
+  <script>
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const pttBtn = document.getElementById('pttBtn');
+    const playSoundBtn = document.getElementById('playSoundBtn');
+    const statusLed = document.getElementById('statusLed');
+    const statusText = document.getElementById('statusText');
+    const soundSelect = document.getElementById('soundSelect');
+    const logDiv = document.getElementById('log');
+    let port;
+    let pttActive = false;
+    let isPlaying = false;
+    connectBtn.addEventListener('click', async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: parseInt(document.getElementById('baudRate').value) });
+        updateUI(true);
+        log('Conectado al puerto serial');
+      } catch (error) {
+        log(`Error de conexión: ${error.message}`);
+      }
+    });
+    disconnectBtn.addEventListener('click', async () => {
+      if (port) {
+        try {
+          await port.close();
+          log('Desconectado del puerto serial');
+        } catch (error) {
+          log(`Error al desconectar: ${error.message}`);
+        }
+        port = null;
+        updateUI(false);
+      }
+    });
+    pttBtn.addEventListener('click', async () => {
+      if (!port) return;
+      pttActive = !pttActive;
+      await sendPTTCommand(pttActive);
+      updatePTTStatus();
+    });
+    playSoundBtn.addEventListener('click', async () => {
+      if (!port || isPlaying) return;
+      isPlaying = true;
+      playSoundBtn.disabled = true;
+      try {
+        const selected = soundSelect.value;
+        const audio = new Audio(`audios/${selected}.mp3`);
+        await sendPTTCommand(true);
+        log(`Transmitiendo: ${selected}`);
+        audio.play();
+        audio.onended = async () => {
+          await sendPTTCommand(false);
+          isPlaying = false;
+          playSoundBtn.disabled = false;
+          log('Transmisión finalizada');
+        };
+        audio.onerror = () => {
+          log(`Error al cargar audio: audios/${selected}.mp3`);
+          sendPTTCommand(false);
+          isPlaying = false;
+          playSoundBtn.disabled = false;
+        };
+      } catch (error) {
+        log(`Error en transmisión: ${error.message}`);
+        await sendPTTCommand(false);
+        isPlaying = false;
+        playSoundBtn.disabled = false;
+      }
+    });
+    refreshBtn.addEventListener('click', () => {
+      log('Puertos actualizados (Web Serial API no permite enumerar sin acción del usuario)');
+    });
+    async function sendPTTCommand(active) {
+      if (!port) return;
+      try {
+        const writer = port.writable.getWriter();
+        await writer.write(new Uint8Array([active ? 49 : 48]));
+        writer.releaseLock();
+      } catch (error) {
+        log(`Error enviando comando PTT: ${error.message}`);
+      }
+    }
+    function updatePTTStatus() {
+      statusLed.classList.toggle('ptt-active', pttActive);
+      pttBtn.textContent = pttActive ? 'DESACTIVAR PTT' : 'ACTIVAR PTT';
+      statusText.textContent = pttActive ? 'Transmitiendo...' : 'Conectado';
+    }
+    function updateUI(connected) {
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      pttBtn.disabled = !connected;
+      playSoundBtn.disabled = !connected;
+      statusText.textContent = connected ? 'Conectado' : 'Desconectado';
+      statusLed.className = 'status-led' + (pttActive ? ' ptt-active' : '');
+    }
+    function log(message) {
+      const entry = document.createElement('div');
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.prepend(entry);
+    }
+  </script>
+</body>
+</html>
