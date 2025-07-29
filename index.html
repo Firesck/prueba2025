@@ -188,6 +188,48 @@
       entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
       logDiv.prepend(entry);
     }
+// Nuevo: Cargar puertos
+refreshBtn.addEventListener('click', async () => {
+    const ports = await window.api.listPorts();
+    log('Puertos encontrados: ' + ports.map(p => p.path).join(', '));
+
+    // Crear un dropdown dinámico (solo una vez)
+    let portSelector = document.getElementById('portSelector');
+    if (!portSelector) {
+        portSelector = document.createElement('select');
+        portSelector.id = 'portSelector';
+        document.body.insertBefore(portSelector, pttBtn);
+    }
+
+    portSelector.innerHTML = '';
+    ports.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.path;
+        option.textContent = `${p.path} (${p.manufacturer || 'sin info'})`;
+        portSelector.appendChild(option);
+    });
+});
+
+// Nuevo: Conectar
+connectBtn.addEventListener('click', async () => {
+    const portPath = document.getElementById('portSelector').value;
+    const baudRate = document.getElementById('baudRate').value;
+    try {
+        await window.api.connectPort(portPath, baudRate);
+        log(`Conectado a ${portPath}`);
+        updateUI(true);
+    } catch (e) {
+        log('Error al conectar: ' + e);
+    }
+});
+
+// PTT
+pttBtn.addEventListener('click', async () => {
+    pttActive = !pttActive;
+    await window.api.sendPTT(pttActive);
+    updatePTTStatus();
+});
+
   </script>
 </body>
 </html>
